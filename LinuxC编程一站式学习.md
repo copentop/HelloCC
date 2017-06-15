@@ -1235,4 +1235,222 @@ int main(void)
 
 
 
+### 链接详解
+
+** extern和static关键字 **
+
+凡是被多次声明的变量或函数，必须有且只有一个声明是定义，如果有多个定义，或者一个定义都没有，链接器就无法完成链接。
+
+变量声明和函数声明有一点不同，函数声明的extern可写可不写，而变量声明如果不写extern意思就完全变了。
+
+
+文件include 
+
+
+gcc -I 告诉gcc头文件在那查找。
+则需要用gcc -c main.c -Istack编译。用-I选项告诉gcc头文件要到子目录stack里找。
+
+在#include预处理指示中可以使用相对路径，例如把上面的代码改成#include "stack/stack.h"，那么编译时就不需要加-Istack选项了
+
+
+重复包含头文件有以下问题：
+
+1. 一是使预处理的速度变慢了，要处理很多本来不需要处理的头文件。
+
+2. 二是如果有foo.h包含bar.h，bar.h又包含foo.h的情况，预处理器就陷入死循环了（其实编译器都会规定一个包含层数的上限）。
+
+3. 三是头文件里有些代码不允许重复出现，虽然变量和函数允许多次声明（只要不是多次定义就行），但头文件里有些代码是不允许多次出现的，比如typedef类型定义和结构体Tag定义等，在一个程序文件中只允许出现一次。
+
+
+
+函数声明的规则
+
+	Storage Class	File Scope Declaration	        Block Scope Declaration
+
+	none		previous linkage/can define	previous linkage/cannot define
+
+	extern		previous linkage/can define	previous linkage/cannot define
+
+	static		internal linkage/can define	N/A 
+
+
+
+
+Previous Linkage的定义是：
+
+这次声明的标识符具有什么样的Linkage取决于前一次声明，这前一次声明具有相同的标识符名，而且必须是文件作用域的声明，
+
+如果在程序文件中找不到前一次声明（这次声明是第一次声明），那么这个标识符具有External Linkage。
+
+
+```
+static int f(void); /* internal linkage */
+extern int f(void); /* previous linkage */
+```
+
+则这里的extern修饰的标识符具有Interanl Linkage而不是External Linkage。
+在文件作用域允许定义函数，在块作用域不允许定义函数，或者说函数定义不能嵌套。
+在块作用域中不允许用static关键字声明函数。
+
+
+变量声明的规则要复杂一些：
+
+	Storage Class	File Scope Declaration			Block Scope Declaration
+
+	none		external linkage / static duration		no linkage / automatic duration
+			static initializer / tentative definition		dynamic initializer / definition
+
+
+	extern		previous linkage / static duration		previous linkage / static duration
+			no initializer[*] / not a definition		no initializer / not a definition
+
+
+	static		internal linkage / static duration		no linkage / static duration
+			static initializer / tentative definition		static initializer / definition
+
+
+
+
+注意上表中标有[*]的单元格，对于文件作用域的extern变量声明，C99是允许带Initializer的，并且认为它是一个定义，但是gcc对于这种写法会报警告，为了兼容性应避免这种写法。
+
+
+
+分别描述变量的链接属性、生存期，以及这种变量如何初始化，是否算变量定义。
+
+链接属性有External Linkage、Internal Linkage、No Linkage和Previous Linkage四种情况。
+
+生存期有Static Duration和Automatic Duration两种情况。
+
+
+初始化有Static Initializer和Dynamic Initializer两种情况，
+
+前者表示Initializer中只能使用常量表达式，表达式的值必须在编译时就能确定，
+
+后者表示Initializer中可以使用任意的右值表达式，表达式的值可以在运行时计算。
+
+
+是否算变量定义有三种情况，Definition（算变量定义）、Not a Definition（不算变量定义）和Tentative Definition（暂定的变量定义）。
+
+
+什么叫“暂定的变量定义”呢？
+
+一个变量声明具有文件作用域，没有Storage Class关键字修饰，或者用static关键字修饰，
+
+那么如果它有Initializer则编译器认为它就是一个变量定义，
+如果它没有Initializer则编译器暂定它是变量定义，
+
+如果程序文件中有这个变量的明确定义就用明确定义，
+如果程序文件没有这个变量的明确定义，就用这个暂定的变量定义，这种情况下变量以0初始化。
+
+
+```
+
+```
+
+
+
+### 预处理
+
+
+宏定义
+
+函数式宏定义
+
+
+用过的#define N 20或#define STR "hello, world"这种宏定义可以称为变量式宏定义（Object-like Macro），宏定义名可以像变量一样在代码中使用
+
+另外一种宏定义可以像函数调用一样在代码中使用，称为函数式宏定义（Function-like Macro）。
+
+```
+#define MAX(a, b) ((a)>(b)?(a):(b))
+```
+
+1. 函数式宏定义的参数没有类型，预处理器只负责做形式上的替换，而不做参数类型检查，所以传参时要格外小心。
+
+2. 使用函数式宏定义也往往会导致较低的代码执行效率。
+
+
+函数式宏定义经常写成这样的形式
+```
+#define device_init_wakeup(dev,val) \
+        do { \
+                device_can_wakeup(dev) = !!(val); \
+                device_set_wakeup_enable(dev,val); \
+        } while(0)
+```
+
+为什么要用do { ... } while(0)括起来呢？不括起来会有什么问题呢？
+
+```
+#define device_init_wakeup(dev,val) \
+                device_can_wakeup(dev) = !!(val); \
+                device_set_wakeup_enable(dev,val);
+
+if (n > 0)
+	device_init_wakeup(d, v);
+
+```
+这样宏展开之后，函数体的第二条语句不在if条件中。那么简单地用{ ... }括起来组成一个语句块不行吗？
+
+问题出在device_init_wakeup(d, v);末尾的;号，如果不允许写这个;号，看起来不像个函数调用，
+可如果写了这个;号，宏展开之后就有语法错误，if语句被这个;号结束掉了，没法跟else配对。
+
+因此，do { ... } while(0)是一种比较好的解决办法。
+
+
+
+如果在一个程序文件中重复定义一个宏，C语言规定这些重复的宏定义必须一模一样。
+
+
+
+在定义的前后多些空白（空格、Tab、注释）没有关系，在定义之中多些空白或少些空白也没有关系，但在定义之中有空白和没有空白被认为是不同的。
+
+所以这样的重复定义是不允许的：
+```
+#define OBJ_LIKE (1 - 1)
+#define OBJ_LIKE (1-1)
+```
+
+如果需要重新定义一个宏，和原来的定义不同，可以先用#undef取消原来的定义，再重新定义。
+
+
+
+内联函数
+
+C99引入一个新关键字inline，用于定义内联函数（inline function）。
+
+inline关键字告诉编译器，这个函数的调用要尽可能快，可以当普通的函数调用实现，也可以用宏展开的办法实现。
+
+
+** #、##运算符和可变参数 **
+
+在函数式宏定义中，#运算符用于创建字符串，#运算符后面应该跟一个形参（中间可以有空格或Tab）
+```
+#define STR(s) # s
+STR(hello 	world)
+```
+用cpp命令预处理之后是"hello world"，自动用双引号号把实参括起来成为一个字符串，并且实参中的连续多个空白字符被替换成一个空格。
+
+即不需使用双引号创建字符串，调用宏定义就可以，宏展开之后字符串的界定符"要替换成\"，字符常量或字符串中的\和"字符要替换成\\和\"。
+
+
+
+在宏定义中可以用##运算符把前后两个预处理Token连接成一个预处理Token，和#运算符不同，##运算符不仅限于函数式宏定义，变量式宏定义也可以用。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
